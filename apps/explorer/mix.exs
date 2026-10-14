@@ -21,8 +21,14 @@ defmodule Explorer.Mixfile do
       lockfile: "../../mix.lock",
       package: package(),
       start_permanent: Mix.env() == :prod,
-      version: "11.1.3",
-      xref: [exclude: [BlockScoutWeb.Routers.WebRouter.Helpers, Indexer.Helper, Indexer.Fetcher.InternalTransaction]]
+      version: "12.0.1",
+      elixirc_options: [
+        no_warn_undefined: [
+          BlockScoutWeb.Routers.WebRouter.Helpers,
+          Indexer.Helper,
+          Indexer.Fetcher.InternalTransaction
+        ]
+      ]
     ]
   end
 
@@ -85,7 +91,6 @@ defmodule Explorer.Mixfile do
       {:ezstd, "~> 1.2"},
       {:exvcr, "~> 0.10", only: :test},
       {:httpoison, "~> 2.0"},
-      {:jason, "~> 1.3"},
       {:junit_formatter, ">= 0.0.0", only: [:test], runtime: false},
       {:libcluster, "~> 3.5"},
       # Log errors and application output to separate files
@@ -93,8 +98,7 @@ defmodule Explorer.Mixfile do
       {:logger_json, "~> 7.0"},
       {:math, "~> 0.7.0"},
       {:mock, "~> 0.3.0", only: [:test], runtime: false},
-      {:mox, "~> 1.1.0"},
-      {:poison, "~> 5.0.0"},
+      {:mox, "~> 1.3.2"},
       {:nimble_csv, "~> 1.1"},
       {:postgrex, ">= 0.0.0"},
       {:prometheus, "~> 6.0", override: true},
@@ -103,7 +107,7 @@ defmodule Explorer.Mixfile do
       {:prometheus_ex, "~> 5.1.0", override: true},
       # bypass optional dependency
       {:plug_cowboy, "~> 2.2", only: [:dev, :test]},
-      {:que, "~> 0.10.1"},
+      {:que, "~> 0.12.0"},
       {:sobelow, ">= 0.7.0", only: [:dev, :test], runtime: false},
       # Tracing
       {:spandex, "~> 3.0"},
@@ -116,12 +120,12 @@ defmodule Explorer.Mixfile do
       # `Timex.Duration` for `Explorer.Chain.Cache.Counters.AverageBlockTime.average_block_time/0`
       {:timex, "~> 3.7.1"},
       {:con_cache, "~> 1.0"},
-      {:tesla, "~> 1.18.2"},
+      {:tesla, "~> 1.21.0"},
       {:cbor, "~> 1.0"},
       {:cloak_ecto, "~> 1.3.0"},
       {:redix, "~> 1.1"},
       {:hammer_backend_redis, "~> 7.0"},
-      {:typed_ecto_schema, "~> 0.4.1"},
+      {:typed_ecto_schema, "~> 0.5.0"},
       {:ueberauth, "~> 0.7"},
       {:recon, "~> 2.5"},
       {:varint, "~> 1.4"},
@@ -132,12 +136,13 @@ defmodule Explorer.Mixfile do
       {:joken, "~> 2.6"},
       {:joken_jwks, "~> 1.7.0"},
       {:utils, in_umbrella: true},
-      {:dns, "~> 2.4.0"},
-      {:inet_cidr, "~> 1.0.0"},
       {:hammer, "~> 7.0"},
       {:ton, "~> 0.5.0"},
       {:mint, "~> 1.0"},
-      {:oban, "~> 2.19"}
+      # pooled HTTP client on top of mint, used for microservice requests
+      {:finch, "~> 0.18"},
+      {:oban, "~> 2.19"},
+      {:nimble_lz4, "~> 1.1"}
     ]
   end
 

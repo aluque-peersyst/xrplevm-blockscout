@@ -16,8 +16,9 @@ defmodule Indexer.Transform.TokenTransfers do
   import Explorer.Helper, only: [decode_data: 2, truncate_address_hash: 1]
 
   alias Explorer.Chain.{Hash, Token, TokenTransfer}
+  alias Explorer.Chain.Token.ScaledUIAmount
   alias Explorer.Repo
-  alias Indexer.Fetcher.TokenTotalSupplyUpdater
+  alias Indexer.Fetcher.{TokenTotalSupplyUpdater, TokenUIMultiplierUpdater}
 
   @doc """
   Returns a list of token transfers given a list of logs.
@@ -83,22 +84,40 @@ defmodule Indexer.Transform.TokenTransfers do
         erc1155_token_transfers.tokens ++
         erc20_and_erc721_token_transfers.tokens ++ weth_transfers.tokens
 
+    rough_tokens_uniq =
+      rough_tokens
+      |> Enum.reduce({%{}, []}, fn %{contract_address_hash: addr} = token, {seen, acc} ->
+        if Map.has_key?(seen, addr) do
+          {seen, acc}
+        else
+          {Map.put(seen, addr, true), [token | acc]}
+        end
+      end)
+      |> elem(1)
+      |> Enum.reverse()
+
     rough_token_transfers =
       erc7984_token_transfers.token_transfers ++
         erc404_token_transfers.token_transfers ++
         erc1155_token_transfers.token_transfers ++
         erc20_and_erc721_token_transfers.token_transfers ++ weth_transfers.token_transfers
 
-    tokens = sanitize_token_types(rough_tokens, rough_token_transfers)
-    token_transfers = sanitize_weth_transfers(tokens, rough_token_transfers, weth_transfers.token_transfers)
+    {tokens_uniq, token_types_map} = sanitize_token_types(rough_tokens_uniq, rough_token_transfers)
+
+    token_transfers =
+      tokens_uniq
+      |> sanitize_weth_transfers(rough_token_transfers, weth_transfers.token_transfers)
+      |> sanitize_scaled_ui_amount_transfer_types(token_types_map)
 
     if !skip_additional_fetchers? do
       token_transfers
       |> filter_tokens_for_supply_update()
       |> TokenTotalSupplyUpdater.add_tokens()
-    end
 
-    tokens_uniq = tokens |> Enum.uniq()
+      logs
+      |> parse_ui_multiplier_changes()
+      |> TokenUIMultiplierUpdater.add_changes()
+    end
 
     token_transfers_from_logs_uniq = %{
       tokens: tokens_uniq,
@@ -193,8 +212,22 @@ defmodule Indexer.Transform.TokenTransfers do
         if token_type_priority(old_type) > token_type_priority(new_type), do: old_type, else: new_type
       end)
 
-    Enum.map(tokens, fn %{contract_address_hash: hash} = token ->
-      Map.put(token, :type, actual_token_types_map[hash])
+    {Enum.map(tokens, fn %{contract_address_hash: hash} = token ->
+       Map.put(token, :type, actual_token_types_map[hash])
+     end), actual_token_types_map}
+  end
+
+  # `token_transfers.token_type` is denormalized, and for every other type the
+  # value `do_parse/3` derived from the log is already right. ERC-8056 is the
+  # exception: its transfers look exactly like ERC-20 ones, so the type resolved
+  # for the token has to be carried over to them.
+  defp sanitize_scaled_ui_amount_transfer_types(token_transfers, token_types_map) do
+    Enum.map(token_transfers, fn token_transfer ->
+      if token_types_map[token_transfer.token_contract_address_hash] == "ERC-8056" do
+        %{token_transfer | token_type: "ERC-8056"}
+      else
+        token_transfer
+      end
     end)
   end
 
@@ -206,7 +239,7 @@ defmodule Indexer.Transform.TokenTransfers do
 
   defp token_type_priority(nil), do: -1
 
-  @token_types_priority_order ["ERC-20", "ERC-721", "ERC-1155", "ERC-404", "ERC-7984"]
+  @token_types_priority_order ["ERC-20", "ERC-8056", "ERC-721", "ERC-1155", "ERC-404", "ERC-7984"]
   defp token_type_priority(token_type) do
     Enum.find_index(@token_types_priority_order, &(&1 == token_type))
   end
@@ -244,7 +277,7 @@ defmodule Indexer.Transform.TokenTransfers do
        when not is_nil(second_topic) and not is_nil(third_topic) do
     if arc_native_token_transfer_event?(log) do
       # for :arc chain type we need to ignore ERC-20 Transfer events from the native token as there are
-      # NativeCoinTransferred, NativeCoinMinted, NativeCoinBurned events instead
+      # NativeCoinTransferred, NativeCoinMinted, NativeCoinBurned, EIP-7708 events instead
       nil
     else
       # handle the transfer for other cases
@@ -252,8 +285,9 @@ defmodule Indexer.Transform.TokenTransfers do
       decimal_amount = Decimal.new(decoded_amount || 0)
 
       {token_contract_address_hash, amount} =
-        if arc_native_coin_transferred_event?(log) do
-          # if this is NativeCoinTransferred event for Arc chain, there are 18 decimals for the native token, so we need to adjust the amount with the token decimals
+        if arc_native_coin_transferred_event?(log) or arc_eip7708_transfer_log?(log) do
+          # NativeCoinTransferred and EIP-7708 protocol Transfer use 18-decimal amounts on-chain;
+          # normalize to configured native token decimals
           {arc_native_token_address(), amount_18_decimals_to_n_decimals(decimal_amount, arc_native_token_decimals())}
         else
           {log.address_hash, decimal_amount}
@@ -556,6 +590,17 @@ defmodule Indexer.Transform.TokenTransfers do
     |> Decimal.div_int(Integer.pow(10, 18))
   end
 
+  # EIP-7708 protocol `Transfer` log (emitter is SYSTEM_ADDRESS, not the synthetic ERC-20).
+  @spec arc_eip7708_transfer_log?(%{
+          :first_topic => String.t(),
+          :address_hash => String.t(),
+          optional(any()) => any()
+        }) :: boolean()
+  defp arc_eip7708_transfer_log?(log) do
+    chain_type() == :arc and log.first_topic == TokenTransfer.constant() and
+      log.address_hash == TokenTransfer.eip7708_system_address()
+  end
+
   # Determines if the given log is the NativeCoinTransferred event emitted by the native token system address on Arc chain.
   #
   # ## Parameters
@@ -670,5 +715,26 @@ defmodule Indexer.Transform.TokenTransfers do
     end)
     |> Enum.map(& &1.token_contract_address_hash)
     |> Enum.uniq()
+  end
+
+  @doc """
+  Returns the ERC-8056 multiplier changes announced in the given logs, as `t:Explorer.Chain.Token.UIMultiplierChange.t/0` parameters.
+
+  This is a candidate filter, not an acceptance: matching the topic says nothing
+  about the contract, since any contract can emit any topic it likes. Whether a
+  change is recorded, and whether the token becomes `ERC-8056`, is settled by
+  `Indexer.Fetcher.TokenUIMultiplierUpdater` once it has checked the ERC-165
+  claim — which keeps the block import path free of `eth_call`s.
+
+  Note that `TransferWithUIAmount`, the other event of the standard, is
+  intentionally not handled by this module: it is emitted *in addition to* the
+  regular ERC-20 `Transfer`, so parsing it as a transfer of its own would count
+  every movement of an ERC-8056 token twice.
+  """
+  @spec parse_ui_multiplier_changes([map()]) :: [map()]
+  def parse_ui_multiplier_changes(logs) do
+    logs
+    |> Enum.map(&ScaledUIAmount.parse_ui_multiplier_updated/1)
+    |> Enum.reject(&is_nil/1)
   end
 end

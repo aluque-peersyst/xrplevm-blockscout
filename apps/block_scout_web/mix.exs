@@ -20,9 +20,9 @@ defmodule BlockScoutWeb.Mixfile do
       lockfile: "../../mix.lock",
       package: package(),
       start_permanent: Mix.env() == :prod,
-      version: "11.1.3",
-      xref: [
-        exclude: [
+      version: "12.0.1",
+      elixirc_options: [
+        no_warn_undefined: [
           Explorer.Chain.Beacon.Reader,
           Explorer.Chain.Cache.OptimismFinalizationPeriod,
           Explorer.Chain.Optimism.OutputRoot,
@@ -113,8 +113,6 @@ defmodule BlockScoutWeb.Mixfile do
       {:hammer_backend_redis, "~> 7.0"},
       {:httpoison, "~> 2.0"},
       {:indexer, in_umbrella: true, runtime: false},
-      # JSON parser and generator
-      {:jason, "~> 1.3"},
       {:junit_formatter, ">= 0.0.0", only: [:test], runtime: false},
       # Log errors and application output to separate files
       {:logger_file_backend, "~> 0.0.10"},
@@ -122,7 +120,7 @@ defmodule BlockScoutWeb.Mixfile do
       {:math, "~> 0.7.0"},
       {:mock, "~> 0.3.0", only: [:test], runtime: false},
       {:number, "~> 1.0.1"},
-      {:phoenix, "== 1.6.16"},
+      {:phoenix, "== 1.6.17"},
       {:phoenix_ecto, "~> 4.1"},
       {:phoenix_html, "== 4.2.1"},
       {:phoenix_html_helpers, "~> 1.0"},
@@ -132,9 +130,6 @@ defmodule BlockScoutWeb.Mixfile do
       {:prometheus_ex, "~> 5.1.0", override: true},
       # use `:cowboy` for WebServer with `:plug`
       {:plug_cowboy, "~> 2.2"},
-      # Waiting for the Pretty Print to be implemented at the Jason lib
-      # https://github.com/michalmuskala/jason/issues/15
-      {:poison, "~> 5.0.0"},
       {:postgrex, ">= 0.0.0"},
       {:prometheus, "~> 6.0", override: true},
       # Expose metrics from URL Prometheus server can scrape
