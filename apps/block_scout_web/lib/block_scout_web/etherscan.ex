@@ -3,7 +3,27 @@ defmodule BlockScoutWeb.Etherscan do
   @moduledoc """
   Documentation data for Etherscan-compatible API.
   """
-  use Utils.CompileTimeEnvHelper, bridged_tokens_enabled: [:block_scout_web, [Explorer.Chain.BridgedToken, :enabled]]
+  use Utils.CompileTimeEnvHelper,
+    bridged_tokens_enabled: [:block_scout_web, [Explorer.Chain.BridgedToken, :enabled]],
+    chain_type: [:explorer, :chain_type]
+
+  # Rollup L1 data fee fields (Etherscan naming) returned by `txlist`, `txlistinternal`, the `tokentx`
+  # family and `gettxinfo`. Present only on chain types storing an L1 fee (see `BlockScoutWeb.API.RPC.RPCView`).
+  @l1_fee_example_fields (case @chain_type do
+                            :optimism ->
+                              %{
+                                "L1FeesPaid" => "83741055139",
+                                "L1GasUsed" => "1600",
+                                "L1GasPrice" => "2227405",
+                                "L1FeeScalar" => "0.684"
+                              }
+
+                            :scroll ->
+                              %{"L1FeesPaid" => "83741055139"}
+
+                            _ ->
+                              %{}
+                          end)
 
   @account_balance_example_value %{
     "status" => "1",
@@ -86,6 +106,7 @@ defmodule BlockScoutWeb.Etherscan do
         "confirmations" => "5994246",
         "methodId" => "0xf00d4b5d"
       }
+      |> Map.merge(@l1_fee_example_fields)
     ]
   }
 
@@ -116,6 +137,7 @@ defmodule BlockScoutWeb.Etherscan do
         "isError" => "0",
         "errCode" => ""
       }
+      |> Map.merge(@l1_fee_example_fields)
     ]
   }
 
@@ -158,6 +180,7 @@ defmodule BlockScoutWeb.Etherscan do
           "0xa9059cbb00000000000000000000000021e21ba085289f81a86921de890eed30f1ad23750000000000000000000000000000000000000000000000008ac7230489e80000",
         "confirmations" => "199384"
       }
+      |> Map.merge(@l1_fee_example_fields)
     ]
   }
 
@@ -294,6 +317,74 @@ defmodule BlockScoutWeb.Etherscan do
   @token_gettokenholders_example_value_error %{
     "status" => "0",
     "message" => "Invalid contract address format",
+    "result" => nil
+  }
+
+  @token_tokenholderlist_example_value %{
+    "status" => "1",
+    "message" => "OK",
+    "result" => [
+      %{
+        "TokenHolderAddress" => "0x0000000000000000000000000000000000000000",
+        "TokenHolderQuantity" => "965208500001258757122850"
+      }
+    ]
+  }
+
+  @token_tokenholderlist_example_value_error %{
+    "status" => "0",
+    "message" => "Invalid contract address hash",
+    "result" => nil
+  }
+
+  @token_tokenholdercount_example_value %{
+    "status" => "1",
+    "message" => "OK",
+    "result" => "30506"
+  }
+
+  @token_tokenholdercount_example_value_error %{
+    "status" => "0",
+    "message" => "Contract address not found",
+    "result" => nil
+  }
+
+  @token_tokeninfo_example_value %{
+    "status" => "1",
+    "message" => "OK",
+    "result" => [
+      %{
+        "contractAddress" => "0x0000000000000000000000000000000000000000",
+        "tokenName" => "Example Token",
+        "symbol" => "ET",
+        "divisor" => "18",
+        "tokenType" => "ERC20",
+        "totalSupply" => "1000000000",
+        "blueCheckmark" => "false",
+        "description" => "",
+        "website" => "",
+        "email" => "",
+        "blog" => "",
+        "reddit" => "",
+        "slack" => "",
+        "facebook" => "",
+        "twitter" => "",
+        "bitcointalk" => "",
+        "github" => "",
+        "telegram" => "",
+        "wechat" => "",
+        "linkedin" => "",
+        "discord" => "",
+        "whitepaper" => "",
+        "tokenPriceUSD" => "0.000000000000000000",
+        "image" => ""
+      }
+    ]
+  }
+
+  @token_tokeninfo_example_value_error %{
+    "status" => "0",
+    "message" => "Contract address not found",
     "result" => nil
   }
 
@@ -562,6 +653,12 @@ defmodule BlockScoutWeb.Etherscan do
     }
   }
 
+  @transaction_gettxinfo_example_value Map.update!(
+                                         @transaction_gettxinfo_example_value,
+                                         "result",
+                                         &Map.merge(&1, @l1_fee_example_fields)
+                                       )
+
   @transaction_gettxreceiptstatus_example_value %{
     "status" => "1",
     "message" => "OK",
@@ -628,6 +725,43 @@ defmodule BlockScoutWeb.Etherscan do
     definition: "A nonnegative number roughly equivalent to computational steps.",
     example: ~s("122261")
   }
+
+  l1_fees_paid_type = %{
+    type: "wei",
+    definition:
+      "The rollup L1 data fee paid for the transaction, in wei. The total fee is gasUsed * gasPrice + L1FeesPaid. \"0\" when the fee is unknown (e.g. deposit transactions). For internal transactions this is the parent transaction's value.",
+    example: ~s("83741055139")
+  }
+
+  # Merged into the `Transaction`, `InternalTransaction`, `TokenTransfer` and `TransactionInfo` models below.
+  @l1_fee_doc_fields (case @chain_type do
+                        :optimism ->
+                          %{
+                            L1FeesPaid: l1_fees_paid_type,
+                            L1GasUsed: %{
+                              type: "gas",
+                              definition: "The L1 gas used to post the transaction's data. Empty when unknown.",
+                              example: ~s("1600")
+                            },
+                            L1GasPrice: %{
+                              type: "wei",
+                              definition:
+                                "The L1 gas price used to compute the L1 data fee, in wei. Empty when unknown.",
+                              example: ~s("2227405")
+                            },
+                            L1FeeScalar: %{
+                              type: "decimal",
+                              definition: "The L1 fee scalar applied to the L1 gas used. Empty when unknown.",
+                              example: ~s("0.684")
+                            }
+                          }
+
+                        :scroll ->
+                          %{L1FeesPaid: l1_fees_paid_type}
+
+                        _ ->
+                          %{}
+                      end)
 
   @address_hash_type %{
     type: "address hash",
@@ -749,6 +883,18 @@ defmodule BlockScoutWeb.Etherscan do
     }
   }
 
+  @token_holder_list_details %{
+    name: "Token Holder",
+    fields: %{
+      TokenHolderAddress: @address_hash_type,
+      TokenHolderQuantity: %{
+        type: "value",
+        definition: "Token balance of the holder in the smallest token units.",
+        example: ~s("1000000000000000000")
+      }
+    }
+  }
+
   @address_balance %{
     name: "AddressBalance",
     fields: %{
@@ -799,6 +945,11 @@ defmodule BlockScoutWeb.Etherscan do
     }
   }
 
+  # `pendingtxlist` renders no rollup L1 fee fields: pending transactions have no receipt yet.
+  @pending_transaction @transaction
+
+  @transaction Map.update!(@transaction, :fields, &Map.merge(&1, @l1_fee_doc_fields))
+
   @internal_transaction %{
     name: "InternalTransaction",
     fields: %{
@@ -837,6 +988,8 @@ defmodule BlockScoutWeb.Etherscan do
       }
     }
   }
+
+  @internal_transaction Map.update!(@internal_transaction, :fields, &Map.merge(&1, @l1_fee_doc_fields))
 
   @block_model %{
     name: "Block",
@@ -904,6 +1057,8 @@ defmodule BlockScoutWeb.Etherscan do
       confirmations: @confirmation_type
     }
   }
+
+  @token_transfer_model Map.update!(@token_transfer_model, :fields, &Map.merge(&1, @l1_fee_doc_fields))
 
   @log %{
     name: "Log",
@@ -973,6 +1128,69 @@ defmodule BlockScoutWeb.Etherscan do
         example: ~s(true)
       },
       contractAddress: @address_hash_type
+    }
+  }
+
+  @token_info_unsupported_string_type %{
+    type: "string",
+    definition: "Not supported by Blockscout. Always an empty string, kept for Etherscan compatibility.",
+    example: ~s("")
+  }
+
+  @token_info_model %{
+    name: "TokenInfo",
+    fields: %{
+      contractAddress: @address_hash_type,
+      tokenName: @token_name_type,
+      symbol: @token_symbol_type,
+      divisor: @token_decimal_type,
+      tokenType: %{
+        type: "token type",
+        enum: ~s(["ERC20", "ERC721", "ERC1155", "ERC404", "ERC7984", "ERC8056"]),
+        enum_interpretation: %{
+          "ERC20" => "ERC-20 token standard",
+          "ERC721" => "ERC-721 token standard",
+          "ERC1155" => "ERC-1155 token standard",
+          "ERC404" => "ERC-404 token standard",
+          "ERC7984" => "ERC-7984 token standard",
+          "ERC8056" => "ERC-8056 token standard"
+        }
+      },
+      totalSupply: %{
+        type: "integer",
+        definition: "The total supply of the token.",
+        example: ~s("1000000000")
+      },
+      blueCheckmark: %{
+        type: "string",
+        definition: "Whether the token has been verified via the admin panel.",
+        example: ~s("false")
+      },
+      description: @token_info_unsupported_string_type,
+      website: @token_info_unsupported_string_type,
+      email: @token_info_unsupported_string_type,
+      blog: @token_info_unsupported_string_type,
+      reddit: @token_info_unsupported_string_type,
+      slack: @token_info_unsupported_string_type,
+      facebook: @token_info_unsupported_string_type,
+      twitter: @token_info_unsupported_string_type,
+      bitcointalk: @token_info_unsupported_string_type,
+      github: @token_info_unsupported_string_type,
+      telegram: @token_info_unsupported_string_type,
+      wechat: @token_info_unsupported_string_type,
+      linkedin: @token_info_unsupported_string_type,
+      discord: @token_info_unsupported_string_type,
+      whitepaper: @token_info_unsupported_string_type,
+      tokenPriceUSD: %{
+        type: "string",
+        definition: "Token price in USD with 18 decimal places. Zero if unknown.",
+        example: ~s("0.000000000000000000")
+      },
+      image: %{
+        type: "string",
+        definition: "URL of the token icon. Empty string if unknown.",
+        example: ~s("https://example.com/icon.png")
+      }
     }
   }
 
@@ -1144,6 +1362,8 @@ defmodule BlockScoutWeb.Etherscan do
       revertReason: @revert_reason_type
     }
   }
+
+  @transaction_info_model Map.update!(@transaction_info_model, :fields, &Map.merge(&1, @l1_fee_doc_fields))
 
   @transaction_status_model %{
     name: "TransactionStatus",
@@ -1366,7 +1586,7 @@ defmodule BlockScoutWeb.Etherscan do
             message: @message_type,
             result: %{
               type: "array",
-              array_type: @transaction
+              array_type: @pending_transaction
             }
           }
         }
@@ -1983,6 +2203,131 @@ defmodule BlockScoutWeb.Etherscan do
         code: "200",
         description: "error",
         example_value: Utils.JSON.encode!(@token_gettokenholders_example_value_error)
+      }
+    ]
+  }
+
+  @token_tokenholderlist_action %{
+    name: "tokenholderlist",
+    description: "Get the list of current token holders and their balances by contract address (Etherscan-compatible).",
+    required_params: [
+      %{
+        key: "contractaddress",
+        placeholder: "contractAddressHash",
+        type: "string",
+        description: "A 160-bit code used for identifying contracts."
+      }
+    ],
+    optional_params: [
+      %{
+        key: "page",
+        type: "integer",
+        description:
+          "A nonnegative integer that represents the page number to be used for pagination. 'offset' must be provided in conjunction."
+      },
+      %{
+        key: "offset",
+        type: "integer",
+        description:
+          "A nonnegative integer that represents the maximum number of records to return when paginating. 'page' must be provided in conjunction."
+      }
+    ],
+    responses: [
+      %{
+        code: "200",
+        description: "successful operation",
+        example_value: Utils.JSON.encode!(@token_tokenholderlist_example_value),
+        model: %{
+          name: "Result",
+          fields: %{
+            status: @status_type,
+            message: @message_type,
+            result: %{
+              type: "array",
+              array_type: @token_holder_list_details
+            }
+          }
+        }
+      },
+      %{
+        code: "200",
+        description: "error",
+        example_value: Utils.JSON.encode!(@token_tokenholderlist_example_value_error)
+      }
+    ]
+  }
+
+  @token_tokenholdercount_action %{
+    name: "tokenholdercount",
+    description: "Get the number of current token holders by contract address (Etherscan-compatible).",
+    required_params: [
+      %{
+        key: "contractaddress",
+        placeholder: "contractAddressHash",
+        type: "string",
+        description: "A 160-bit code used for identifying contracts."
+      }
+    ],
+    optional_params: [],
+    responses: [
+      %{
+        code: "200",
+        description: "successful operation",
+        example_value: Utils.JSON.encode!(@token_tokenholdercount_example_value),
+        model: %{
+          name: "Result",
+          fields: %{
+            status: @status_type,
+            message: @message_type,
+            result: %{
+              type: "integer",
+              definition: "The number of current token holders.",
+              example: ~s("30506")
+            }
+          }
+        }
+      },
+      %{
+        code: "200",
+        description: "error",
+        example_value: Utils.JSON.encode!(@token_tokenholdercount_example_value_error)
+      }
+    ]
+  }
+
+  @token_tokeninfo_action %{
+    name: "tokeninfo",
+    description: "Get token project details by contract address (Etherscan-compatible).",
+    required_params: [
+      %{
+        key: "contractaddress",
+        placeholder: "contractAddressHash",
+        type: "string",
+        description: "A 160-bit code used for identifying contracts."
+      }
+    ],
+    optional_params: [],
+    responses: [
+      %{
+        code: "200",
+        description: "successful operation",
+        example_value: Utils.JSON.encode!(@token_tokeninfo_example_value),
+        model: %{
+          name: "Result",
+          fields: %{
+            status: @status_type,
+            message: @message_type,
+            result: %{
+              type: "array",
+              array_type: @token_info_model
+            }
+          }
+        }
+      },
+      %{
+        code: "200",
+        description: "error",
+        example_value: Utils.JSON.encode!(@token_tokeninfo_example_value_error)
       }
     ]
   }
@@ -3031,11 +3376,14 @@ defmodule BlockScoutWeb.Etherscan do
 
   @base_token_actions [
     @token_gettoken_action,
-    @token_gettokenholders_action
+    @token_gettokenholders_action,
+    @token_tokenholderlist_action,
+    @token_tokenholdercount_action,
+    @token_tokeninfo_action
   ]
 
   @token_actions if @bridged_tokens_enabled,
-                   do: [@token_bridgedtokenlist_action, @base_token_actions],
+                   do: [@token_bridgedtokenlist_action | @base_token_actions],
                    else: @base_token_actions
 
   @token_module %{

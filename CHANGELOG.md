@@ -1,5 +1,48 @@
 # Changelog
 
+## 12.0.2
+
+### 🚀 Features
+
+- Expose rollup L1 data fee in the Etherscan-compatible API ([#14954](https://github.com/blockscout/blockscout/issues/14954))
+- Add JSON-RPC-compatible tokenholderlist, tokenholdercount, tokeninfo endpoints ([#14935](https://github.com/blockscout/blockscout/issues/14935))
+
+### 🐛 Bug Fixes
+
+- Fix log join in optimism withdrawal list ([#14955](https://github.com/blockscout/blockscout/issues/14955))
+- Tolerate malformed content-type headers in NFT media type detection ([#14949](https://github.com/blockscout/blockscout/issues/14949))
+- Widen withdrawals.validator_index to bigint for ePBS builder withdrawals ([#14948](https://github.com/blockscout/blockscout/issues/14948))
+- Run token instance media type fetcher only on indexer nodes ([#14936](https://github.com/blockscout/blockscout/issues/14936))
+
+### ⚡ Performance
+
+- Optimize scam tokens filtering ([#14952](https://github.com/blockscout/blockscout/issues/14952))
+- Merge address count and coin balance sum counters into one query ([#14934](https://github.com/blockscout/blockscout/issues/14934))
+
+### ⚙️ Miscellaneous Tasks
+
+- Refactor FillLogsOptimizedFields to iterate over logs instead of blocks ([#14956](https://github.com/blockscout/blockscout/issues/14956))
+- Increase default concurrency of coin balance fetcher ([#14953](https://github.com/blockscout/blockscout/issues/14953))
+- Update Hackney 1.18 -> 4.0 ([#14947](https://github.com/blockscout/blockscout/issues/14947))
+- Bump phoenix to v1.6.17 ([#14946](https://github.com/blockscout/blockscout/issues/14946))
+- Remove deprecated blocks join in token_transfers_query_function ([#14700](https://github.com/blockscout/blockscout/issues/14700))
+- Migrate to Elixir 1.20.x ([#14932](https://github.com/blockscout/blockscout/issues/14932))
+
+### New ENV variables
+
+| Variable                                            | Description                                                                                                                                                                                     | Parameters                                                          |
+|-----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------|
+| `INDEXER_TOKEN_INSTANCE_MEDIA_TYPE_INIT_QUERY_LIMIT`          | Limit on the number of token instances loaded into the media type fetcher queue during each init pass. Implemented in [#14936](https://github.com/blockscout/blockscout/pull/14936).                                                                                                                                                                                                                                                                                                                                             | Version: v12.0.2\+ <br />Default: `1000` <br />Applications: Indexer                                         |
+| `CACHE_ADDRESS_AGGREGATES_PERIOD`                             | Refresh period for the combined addresses count and coin balance sums. [Time format](/setup/env-variables/backend-env-variables#time-format). Implemented in [#14934](https://github.com/blockscout/blockscout/pull/14934).                                                                                                          | Version: v12.0.2\+ <br />Default: `1h` <br />Applications: API, Indexer   |
+
+### Deprecated ENV variables
+
+| Variable | Description | Default | Version | Need recompile | Deprecated in Version |
+| -------- | ----------- | ------- | ------- | -------------- | --------------------- |
+| <span style={{color: "red"}}>Deprecated</span> `CACHE_ADDRESS_COUNT_PERIOD` | Interval for restarting the task that calculates the total number of addresses. Replaced with `CACHE_ADDRESS_AGGREGATES_PERIOD`, which refreshes the addresses count and coin balance sums together. Removed in [#14934](https://github.com/blockscout/blockscout/pull/14934). | `30m` | v8.0.0\+ |  | v12.0.2+ |
+| <span style={{color: "red"}}>Deprecated</span> `CACHE_ADDRESS_SUM_PERIOD` | Time to live of addresses sum (except burn address) cache. Replaced with `CACHE_ADDRESS_AGGREGATES_PERIOD`, which refreshes the addresses count and coin balance sums together. Removed in [#14934](https://github.com/blockscout/blockscout/pull/14934). | `1h` | v4.1.3\+ |  | v12.0.2+ |
+
+
 ## 12.0.1
 
 ### 🚀 Features

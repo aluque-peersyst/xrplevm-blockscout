@@ -4,13 +4,13 @@ defmodule Explorer.Etherscan do
   The etherscan context.
   """
 
+  use Utils.CompileTimeEnvHelper, chain_type: [:explorer, :chain_type]
+
   import Ecto.Query
 
-  import Explorer.Chain.SmartContract, only: [burn_address_hash_string: 0]
-
   alias Explorer.{Chain, Repo}
-  alias Explorer.Chain.{Address, Block, DenormalizationHelper, Hash, InternalTransaction, TokenTransfer, Transaction}
   alias Explorer.Chain.Address.{CurrentTokenBalance, TokenBalance}
+  alias Explorer.Chain.{Block, DenormalizationHelper, Hash, InternalTransaction, TokenTransfer, Transaction}
   alias Explorer.Chain.Transaction.History.TransactionStats
   alias Explorer.Etherscan.Logs
 
@@ -81,6 +81,34 @@ defmodule Explorer.Etherscan do
       ) do
     merged_options = Map.merge(@default_options, options)
     list_pending_transactions_query(address_hash, merged_options)
+  end
+
+  # Rollup L1 data fee columns of `transactions`, exposed by the Etherscan-compatible API as
+  # `L1FeesPaid` (and, on OP-stack chains, `L1GasUsed`, `L1GasPrice`, `L1FeeScalar`). The list is
+  # resolved at compile time because `map/2` and `struct/2` selects validate field names against the
+  # schema, which only has these fields on the corresponding chain types.
+  @l1_fee_transaction_fields (case @chain_type do
+                                :optimism -> ~w(l1_fee l1_gas_used l1_gas_price l1_fee_scalar)a
+                                :scroll -> ~w(l1_fee)a
+                                _ -> []
+                              end)
+
+  @doc """
+  Returns the list of transaction fields holding the rollup L1 data fee data for the current
+  chain type. Empty on chain types without an L1 fee.
+  """
+  @spec l1_fee_transaction_fields() :: [atom()]
+  def l1_fee_transaction_fields, do: @l1_fee_transaction_fields
+
+  # Adds the parent transaction's L1 fee columns to an internal transactions query whose transaction
+  # is the first join (see `InternalTransaction.join_transaction_query/1`). No-op on chain types
+  # without an L1 fee.
+  if @l1_fee_transaction_fields == [] do
+    defp select_merge_l1_fee_fields(query), do: query
+  else
+    defp select_merge_l1_fee_fields(query) do
+      select_merge(query, [_internal_transaction, transaction], map(transaction, ^@l1_fee_transaction_fields))
+    end
   end
 
   @internal_transaction_fields ~w(
@@ -167,6 +195,7 @@ defmodule Explorer.Etherscan do
       end
 
     query
+    |> select_merge_l1_fee_fields()
     |> InternalTransaction.where_is_different_from_parent_transaction()
     |> InternalTransaction.where_nonpending_operation()
     |> InternalTransaction.include_zero_value(options.include_zero_value)
@@ -202,6 +231,7 @@ defmodule Explorer.Etherscan do
     |> Enum.map(fn direction ->
       options
       |> consensus_internal_transactions_with_transactions_and_blocks_query()
+      |> select_merge_l1_fee_fields()
       |> InternalTransaction.where_address_fields_match(address_hash, direction, @api_true)
       |> InternalTransaction.where_is_different_from_parent_transaction()
       |> InternalTransaction.include_zero_value(options.include_zero_value)
@@ -239,6 +269,7 @@ defmodule Explorer.Etherscan do
 
     options
     |> internal_transactions_query(consensus_blocks)
+    |> select_merge_l1_fee_fields()
     |> InternalTransaction.where_is_different_from_parent_transaction()
     |> InternalTransaction.include_zero_value(options.include_zero_value)
     |> where_start_block_match_internal_transaction(options)
@@ -499,7 +530,7 @@ defmodule Explorer.Etherscan do
     to_address_hash
     value
     revert_reason
-  )a
+  )a ++ @l1_fee_transaction_fields
 
   @pending_transaction_fields ~w(
     created_contract_address_hash
@@ -790,6 +821,8 @@ defmodule Explorer.Etherscan do
     :created_contract_address_hash
   ]
 
+  @token_transfer_transaction_fields @token_transfer_transaction_fields ++ @l1_fee_transaction_fields
+
   defp maybe_preload_entities(query) do
     transaction_query =
       from(transaction in Transaction, select: struct(transaction, ^@token_transfer_transaction_fields))
@@ -801,13 +834,9 @@ defmodule Explorer.Etherscan do
     end
   end
 
-  defp where_start_block_match(query, %{startblock: nil}), do: query
-
   defp where_start_block_match(query, %{startblock: start_block}) do
     where(query, [..., block], block.number >= ^start_block)
   end
-
-  defp where_end_block_match(query, %{endblock: nil}), do: query
 
   defp where_end_block_match(query, %{endblock: end_block}) do
     where(query, [..., block], block.number <= ^end_block)
@@ -926,33 +955,6 @@ defmodule Explorer.Etherscan do
   """
   @spec list_logs(map()) :: [map()]
   def list_logs(filter), do: Logs.list_logs(filter)
-
-  @spec fetch_sum_coin_total_supply() :: non_neg_integer
-  def fetch_sum_coin_total_supply do
-    query =
-      from(
-        a0 in Address,
-        select: fragment("SUM(a0.fetched_coin_balance)"),
-        where: a0.fetched_coin_balance > ^0
-      )
-
-    Repo.replica().one!(query, timeout: :infinity) || 0
-  end
-
-  @spec fetch_sum_coin_total_supply_minus_burnt() :: non_neg_integer
-  def fetch_sum_coin_total_supply_minus_burnt do
-    {:ok, burn_address_hash} = Chain.string_to_address_hash(burn_address_hash_string())
-
-    query =
-      from(
-        a0 in Address,
-        select: fragment("SUM(a0.fetched_coin_balance)"),
-        where: a0.hash != ^burn_address_hash,
-        where: a0.fetched_coin_balance > ^0
-      )
-
-    Repo.replica().one!(query, timeout: :infinity) || 0
-  end
 
   @doc """
   It is used by `totalfees` API endpoint of `stats` module for retrieving of total fee per day
